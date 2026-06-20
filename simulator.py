@@ -2,10 +2,10 @@
 import struct
 
 from settings import getSetting
-from components import Registers, Memory, Breakpoint, ComponentException
 from history import History
-from simulatorOps import *
-from simulatorOps.abstractOp import ExecutionException
+
+from unicorn import *
+from unicorn.arm_const import *
 
 from stateManager import StateManager
 appState = StateManager()
