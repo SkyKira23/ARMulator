@@ -155,18 +155,17 @@ class Simulator:
 
     def loop(self):
         """
-        Loop until the stopping criterion is met. Returns the aggregated list
-        of changes since the beginning of the simulation loop.
-        Stopping criterion can be set using `setStepCondition`.
+        Loop until the stopping criterion is met.
         """
         self.history.setCheckpoint()
-        for decoder in self.decoders.values():
-            decoder.resetExecCounters()
-        self.nextInstr()  # We always execute at least one instruction
-        while not self.isStepDone():  # We repeat until the stopping criterion is met
+        
+        # Execute at least one instruction
+        self.nextInstr()  
+        
+        # Repeat until the UI stopping criterion is met
+        while not self.isStepDone():  
             self.nextInstr()
-        self.explainInstruction()  # We only have to explain the last instruction executed before we stop
-
+    
     def stepBack(self, count=1):
         for c in range(count):
             self.history.stepBack()
@@ -326,136 +325,21 @@ class Simulator:
                 self.errorsPending.append(ex.cmp, ex.text, assertionLine)
 
     def nextInstr(self, forceExplain=False):
-        if self.currentInstr is None:
-            # The current instruction has not be retrieved or decoded (because it was an illegal access)
-            # We raise the last error to explain the illegal access
-            raise self.errorsPending
-
-        isFirstInst = self.runIteration == self.history.cyclesCount
-        # One more cycle to do!
-        self.history.newCycle()
-        # Clear previous errors
+        """
+        Execute a single instruction using Unicorn Engine.
+        """
         self.errorsPending.clear()
+        self.history.newCycle()
 
-        keeppc = self.regs[15] - self.pcoffset
+        # Get the current Program Counter
+        current_pc = self.mu.reg_read(UC_ARM_REG_PC)
 
-        currentCallStackLen = len(self.callStack)
-
-        if self.stepMode in ("out", "run", "forward") and not isFirstInst:
-            if self.bkptLastFetch:
-                # We hit a breakpoint on the last decoded instruction
-                err = self.bkptLastFetch
-                self.bkptLastFetch = None
-                self.history.restartCycle()
-                raise err
-            try:
-                self.currentInstr.execute(self)
-            except Breakpoint as bp:
-                # We hit a breakpoint on READ/WRITE
-                # We temporary disable the raised breakpoint
-                self.deactivatedBkpts.append(bp)
-                self._toggleBreakpoint(bp)
-                self.history.restartCycle()
-                raise bp
-            except ComponentException as err:
-                self.errorsPending.append(err.cmp, err.text, self.getCurrentLine())
-            except ExecutionException as err:
-                self.errorsPending.append("execution", err.text, self.getCurrentLine())
-
-        else:
-            # In stepIn mode or this is the first step to be execute in this mode.
-            # Breakpoints are temporary deactivate
-            try:
-                self.deactivateAllBreakpoints()
-                self.currentInstr.execute(self)
-            except ComponentException as err:
-                self.errorsPending.append(err.cmp, err.text, self.getCurrentLine())
-            except ExecutionException as err:
-                self.errorsPending.append("execution", err.text, self.getCurrentLine())
-            self.reactivateAllBreakpoints()
-
-        # After instruction execution, restore all breakpoints
-        for bp in self.deactivatedBkpts:
-            self._toggleBreakpoint(bp)
-        self.deactivatedBkpts = []
-
-        if self.currentInstr.pcmodified:
-            # If PC was modified, we simulate the prefetch by adding 8 immediately to it
-            self.regs[15] += self.pcoffset
-        else:
-            self.regs[15] += 4  # PC = PC + 4
-
-        newpc = self.regs[15] - self.pcoffset
-        if keeppc in self.assertionCkpts and not self.currentInstr.pcmodified:
-            # We check if we've hit an post-assertion checkpoint
-            self.execAssert(self.assertionData[keeppc], "AFTER")
-        elif currentCallStackLen > len(self.callStack):
-            # We have branched out of a function
-            # If an assertion was following a BL and we exited a function, we want to execute it now!
-            if (
-                len(self.callStack) in self.assertionWhenReturn
-                and (newpc - 4) in self.assertionCkpts
-            ):
-                self.execAssert(self.assertionData[newpc - 4], "AFTER")
-                self.assertionWhenReturn.remove(len(self.callStack))
-        elif currentCallStackLen < len(self.callStack):
-            # We have branched in a function
-            # We want to remember that we want to assert something when we return
-            if keeppc in self.assertionCkpts:
-                self.assertionWhenReturn.add(currentCallStackLen)
-
-        if newpc in self.assertionCkpts:
-            # We check if we've hit an pre-assertion checkpoint (for the next instruction)
-            self.execAssert(self.assertionData[newpc], "BEFORE")
-
-        # We look for interrupts
-        # The current instruction is always finished before the interrupt takes on
-        # TODO Handle special cases for LDM and STM
-        if (
-            self.interruptActive
-            and self.history.cyclesCount
-            >= (self.interruptParams["t0"] + self.interruptParams["b"])
-            and (
-                self.history.cyclesCount
-                - 1
-                - self.interruptParams["t0"]
-                - self.interruptParams["b"]
-            )
-            % self.interruptParams["a"]
-            == 0
-        ):
-            if (
-                self.interruptParams["type"] == "FIQ"
-                and not self.regs.FIQ
-                or self.interruptParams["type"] == "IRQ"
-                and not self.regs.IRQ
-                and self.regs.mode != "FIQ"
-            ):  # Is the interrupt masked?
-                # Interruption!
-                # We enter it (the entry point is 0x18 for IRQ and 0x1C for FIQ)
-                savedCPSR = self.regs.CPSR  # Keep CPSR before changing processor mode
-                self.regs.mode = self.interruptParams[
-                    "type"
-                ]  # Set the register bank and processor mode
-                self.regs.SPSR = savedCPSR  # Save the CPSR in the current SPSR
-                self.regs.IRQ = (
-                    True  # IRQ are always disabled when we enter an interrupt
-                )
-                if (
-                    self.interruptParams["type"] == "FIQ"
-                ):  # If we enter a FIQ interrupt,
-                    self.regs.FIQ = True  #   then we disable also FIQ interrupts
-                self.regs[14] = (
-                    self.regs[15] - 4
-                )  # Save PC in LR (on the FIQ or IRQ bank)
-                self.regs[15] = self.pcoffset + (
-                    0x18 if self.interruptParams["type"] == "IRQ" else 0x1C
-                )  # Set PC to enter the interrupt
-
-        # We fetch and decode the next instruction
-        self.fetchAndDecode(forceExplain)
-
-        if self.errorsPending:
+        try:
+            # Emulate exactly 1 instruction starting from current_pc
+            # emu_start(start_address, end_address, timeout, count)
+            self.mu.emu_start(current_pc, 0, count=1)
+        except UcError as e:
+            self.errorsPending.append("execution", str(e), self.getCurrentLine())
             raise self.errorsPending
 
     def deactivateAllBreakpoints(self):
