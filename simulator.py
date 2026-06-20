@@ -378,3 +378,29 @@ class Simulator:
             )
         elif bkptException.cmp == "flags":
             self.regs.toggleBreakpointOnFlag(bkptException.info, bkptException.mode)
+
+    def getRegisters(self):
+        """
+        Read all User bank registers (R0-R15) directly from Unicorn Engine.
+        Returns a dictionary compatible with the old UI format.
+        """
+        return {
+            "User": [
+                self.mu.reg_read(UC_ARM_REG_R0),
+                self.mu.reg_read(UC_ARM_REG_R1),
+                self.mu.reg_read(UC_ARM_REG_R2),
+                self.mu.reg_read(UC_ARM_REG_R3),
+                self.mu.reg_read(UC_ARM_REG_R4),
+                self.mu.reg_read(UC_ARM_REG_R5),
+                self.mu.reg_read(UC_ARM_REG_R6),
+                self.mu.reg_read(UC_ARM_REG_R7),
+                self.mu.reg_read(UC_ARM_REG_R8),
+                self.mu.reg_read(UC_ARM_REG_R9),
+                self.mu.reg_read(UC_ARM_REG_R10),
+                self.mu.reg_read(UC_ARM_REG_R11),
+                self.mu.reg_read(UC_ARM_REG_R12),
+                self.mu.reg_read(UC_ARM_REG_SP), # R13
+                self.mu.reg_read(UC_ARM_REG_LR), # R14
+                self.mu.reg_read(UC_ARM_REG_PC)  # R15
+            ]
+        }
