@@ -117,10 +117,12 @@ class Simulator:
         self.history.clear()
 
     def reset(self):
+        """
+        Reset the state of the simulator.
+        Memory content is preserved, but PC is reset to its initial value.
+        """
         self.history.clear()
-        self.regs.banks["User"][15].val = self.pcInitVal + self.pcoffset
-        self.fetchAndDecode()
-        self.explainInstruction()
+        self.mu.reg_write(UC_ARM_REG_PC, self.pcInitVal + self.pcoffset)
 
     def getContext(self):
         context = {"regs": self.regs.getContext(), "mem": self.mem.getContext()}
