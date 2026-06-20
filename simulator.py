@@ -354,10 +354,16 @@ class Simulator:
         self.mem.reactivateBreakpoints()
 
     def getCurrentLine(self):
-        self.regs.deactivateBreakpoints()
-        pc = self.regs[15]
-        self.regs.reactivateBreakpoints()
+        """
+        Get the current line number corresponding to the execution PC.
+        """
+        # Read the current Program Counter directly from Unicorn
+        pc = self.mu.reg_read(UC_ARM_REG_PC)
+        
+        # Adjust PC behavior according to settings
         pc -= 8 if getSetting("PCbehavior") == "+8" else 0
+        
+        # Map the memory address back to the source code line number
         if pc in self.addr2line and len(self.addr2line[pc]) > 0:
             return self.addr2line[pc][-1]
         else:
