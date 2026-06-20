@@ -76,25 +76,23 @@ class Simulator:
         self.history = History()
 
         # Initialize components
-        self.mem = Memory(self.history, memorycontent)
-        self.regs = Registers(self.history)
         self.pcInitVal = pcInitValue
 
-        # Initialize decoders
-        self.decoders = {
-            "BranchOp": BranchOp(),
-            "DataOp": DataOp(),
-            "MemOp": MemOp(),
-            "MultipleMemOp": MultipleMemOp(),
-            "HalfSignedMemOp": HalfSignedMemOp(),
-            "SwapOp": SwapOp(),
-            "PSROp": PSROp(),
-            "MulOp": MulOp(),
-            "MulLongOp": MulLongOp(),
-            "SoftInterruptOp": SoftInterruptOp(),
-            "NopOp": NopOp(),
-        }
-        self.decoderCache = {}
+        # --- NEW UNICORN ENGINE ---
+        # Initialize Unicorn Engine in ARM mode
+        self.mu = Uc(UC_ARCH_ARM, UC_MODE_ARM)
+        
+        # Map 2MB of aligned virtual memory
+        self.ADDRESS = 0x10000 
+        self.SIZE = 2 * 1024 * 1024 
+        self.mu.mem_map(self.ADDRESS, self.SIZE)
+
+        # Write the assembler bytecode directly into Unicorn's memory
+        for addr, data in memorycontent.items():
+             self.mu.mem_write(addr, bytes(data))
+
+        # Set the initial Program Counter (PC) register
+        self.mu.reg_write(UC_ARM_REG_PC, self.pcInitVal + self.pcoffset)
 
         # Initialize assertion structures
         self.assertionCkpts = set(assertionTriggers.keys())
